@@ -1,7 +1,8 @@
 import { Identifier } from "sequelize";
 import QueryString from "qs";
-import { Token } from "../models";
+import { Network, Token } from "../models";
 import { crawler } from "./";
+import { erc20 } from "./";
 
 export async function find(data: {
   [x: string]:
@@ -30,8 +31,16 @@ export async function findOne(id: Identifier, userId: number | null = null) {
 export async function create(data: {
   [x: string]: string | string[] | undefined;
 }) {
+  const network = await Network.findByPk(data.networkId as Identifier);
+  const { name, symbol, decimals } = await erc20.getToken(
+    network?.dataValues.url,
+    data.address as string,
+  );
+  data.name = name;
+  data.symbol = symbol;
+  data.decimals = decimals.toString();
   const token = await Token.create(data);
-  crawler.initTokenHandler(token.dataValues.id);
+  await crawler.initTokenHandler(token.dataValues.id);
   return token;
 }
 

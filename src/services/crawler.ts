@@ -6,26 +6,30 @@ import { Token, Network, Transfer, Account } from "../models";
 const lock = new AsyncLock();
 
 export async function run() {
-  const tokens = await Token.findAll({ include: [{ model: Network }] });
-  for (const token of tokens) {
-    const lastTransfer = await Transfer.findOne({
-      where: { tokenId: token.dataValues.id },
-      order: [["block", "DESC"]],
-    });
+  try {
+    const tokens = await Token.findAll({ include: [{ model: Network }] });
+    for (const token of tokens) {
+      const lastTransfer = await Transfer.findOne({
+        where: { tokenId: token.dataValues.id },
+        order: [["block", "DESC"]],
+      });
 
-    erc20.listen({
-      url: token.dataValues.network.url,
-      contractAddress: token.dataValues.address,
-      options: {
-        fromBlock: lastTransfer?.dataValues.block || token.dataValues.block,
-      },
-      event: "Transfer",
-      callback: (event: any) => transferHandler(event, token.dataValues.id),
-    });
+      await erc20.listen({
+        url: token.dataValues.network.url,
+        address: token.dataValues.address,
+        options: {
+          fromBlock: lastTransfer?.dataValues.block || token.dataValues.block,
+        },
+        event: "Transfer",
+        callback: (event: any) => transferHandler(event, token.dataValues.id),
+      });
 
-    lock.acquire("tokenId:" + token.dataValues.id, (done) =>
-      accountHandler(token.dataValues.id).finally(() => done()),
-    );
+      lock.acquire("tokenId:" + token.dataValues.id, (done) =>
+        accountHandler(token.dataValues.id).finally(() => done()),
+      );
+    }
+  } catch (e) {
+    console.log(e);
   }
 }
 
@@ -111,15 +115,15 @@ async function accountHandler(tokenId: any) {
 }
 
 export async function initTokenHandler(tokenId: any) {
-  const token = await Token.findByPk(tokenId, {
-    include: [{ model: Network }],
-  });
-  if (!token) return;
-  erc20.listen({
-    url: token.dataValues.network.url,
-    contractAddress: token.dataValues.address,
-    options: { fromBlock: token.dataValues.block },
-    event: "Transfer",
-    callback: (event: any) => transferHandler(event, token.dataValues.id),
-  });
+    const token = await Token.findByPk(tokenId, {
+      include: [{ model: Network }],
+    });
+    if (!token) return;
+    await erc20.listen({
+      url: token.dataValues.network.url,
+      address: token.dataValues.address,
+      options: { fromBlock: token.dataValues.block },
+      event: "Transfer",
+      callback: (event: any) => transferHandler(event, token.dataValues.id),
+    });
 }
