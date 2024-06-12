@@ -1,7 +1,7 @@
 import { Sequelize } from "sequelize";
 import { crawler } from "./";
 
-const sequelize = new Sequelize(process.env.DB_CONNECTION_STING || "", {
+const sequelize = new Sequelize(process.env.DB_CONNECTION_STRING || "", {
   logging: false,
 });
 

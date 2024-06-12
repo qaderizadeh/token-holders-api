@@ -1,129 +1,142 @@
-import AsyncLock from "async-lock";
+import amqplib from "amqplib";
 import BigNumber from "bignumber.js";
 import { erc20 } from "./";
 import { Token, Network, Transfer, Account } from "../models";
 
-const lock = new AsyncLock();
+let conn: amqplib.Connection;
 
 export async function run() {
   try {
-    const tokens = await Token.findAll({ include: [{ model: Network }] });
+    conn = await amqplib.connect(process.env.QUEUE_CONNECTION_STRING || "");
+
+    const tokens = await Token.findAll();
+
     for (const token of tokens) {
-      const lastTransfer = await Transfer.findOne({
-        where: { tokenId: token.dataValues.id },
-        order: [["block", "DESC"]],
-      });
-
-      await erc20.listen({
-        url: token.dataValues.network.url,
-        address: token.dataValues.address,
-        options: {
-          fromBlock: lastTransfer?.dataValues.block || token.dataValues.block,
-        },
-        event: "Transfer",
-        callback: (event: any) => transferHandler(event, token.dataValues.id),
-      });
-
-      lock.acquire("tokenId:" + token.dataValues.id, (done) =>
-        accountHandler(token.dataValues.id).finally(() => done()),
-      );
+      await tokenHandler(token.dataValues.id);
     }
   } catch (e) {
     console.log(e);
   }
 }
 
-async function transferHandler(event: any, tokenId: any) {
-  try {
-    await Transfer.create({
-      from: event.returnValues.from.toLowerCase(),
-      to: event.returnValues.to.toLowerCase(),
-      value: new BigNumber(event.returnValues.value)
-        .toFixed()
-        .padStart(78, "0"),
-      hash: event.transactionHash.toLowerCase(),
-      block: event.blockNumber,
-      log: event.logIndex,
-      tokenId: tokenId,
-    });
+export async function tokenHandler(tokenId: any) {
+  const token = await Token.findOne({
+    where: { id: tokenId },
+    include: [{ model: Network }],
+  });
 
-    lock.acquire("tokenId:" + tokenId, (done) =>
-      accountHandler(tokenId).finally(() => done()),
-    );
-  } catch (e) {}
+  if (!token) throw Error("token not found");
+
+  const queue = "token:" + token.dataValues.id;
+
+  const ch1 = await conn.createChannel();
+  await ch1.assertQueue(queue);
+  await ch1.prefetch(1);
+
+  ch1.consume(queue, async (msg) => {
+    if (msg !== null) {
+      await transferHandler(msg.content.toString());
+
+      ch1.ack(msg);
+    } else {
+      console.log("Consumer cancelled by server");
+    }
+  });
+
+  const lastTransfer = await Transfer.findOne({
+    where: { tokenId: token.dataValues.id },
+    order: [["block", "DESC"]],
+  });
+
+  await erc20.listen({
+    url: token.dataValues.network.url,
+    address: token.dataValues.address,
+    options: {
+      fromBlock: lastTransfer?.dataValues.block || token.dataValues.block,
+    },
+    event: "Transfer",
+    callback: (event: any) =>
+      eventHandler(event, token.dataValues.id, conn, queue),
+  });
 }
 
-async function accountHandler(tokenId: any) {
-  const transfers = await Transfer.findAll({
-    where: { tokenId, checked: false },
-  });
-  for (const transfer of transfers) {
-    const fromAccount = await Account.findOne({
-      where: {
-        address: transfer.dataValues.from,
-        tokenId: transfer.dataValues.tokenId,
-      },
-    });
+async function eventHandler(
+  event: any,
+  tokenId: any,
+  conn: any,
+  queue: string,
+) {
+  try {
+    const ch2 = await conn.createChannel();
 
-    if (fromAccount) {
-      const newValue = new BigNumber(fromAccount.dataValues.value)
-        .minus(new BigNumber(transfer.dataValues.value))
-        .toFixed()
-        .padStart(78, "0");
-
-      Account.update(
-        { value: newValue },
-        { where: { id: fromAccount.dataValues.id } },
-      );
-    }
-
-    let toAccount = await Account.findOne({
-      where: {
-        address: transfer.dataValues.to,
-        tokenId: transfer.dataValues.tokenId,
-      },
-    });
-
-    if (!toAccount) {
-      if (
-        transfer.dataValues.to != "0x0000000000000000000000000000000000000000"
-      )
-        toAccount = await Account.create({
-          tokenId: transfer.dataValues.tokenId,
-          address: transfer.dataValues.to.toLowerCase(),
-          value: new BigNumber(transfer.dataValues.value)
+    ch2.sendToQueue(
+      queue,
+      Buffer.from(
+        JSON.stringify({
+          from: event.returnValues.from.toLowerCase(),
+          to: event.returnValues.to.toLowerCase(),
+          value: new BigNumber(event.returnValues.value)
             .toFixed()
             .padStart(78, "0"),
-        });
-    } else {
-      const newValue = new BigNumber(toAccount.dataValues.value)
-        .plus(new BigNumber(transfer.dataValues.value))
-        .toFixed()
-        .padStart(78, "0");
-
-      Account.update(
-        { value: newValue },
-        { where: { id: toAccount.dataValues.id } },
-      );
-    }
-
-    await Transfer.update(
-      { checked: true },
-      { where: { id: transfer.dataValues.id } },
+          hash: event.transactionHash.toLowerCase(),
+          block: Number(event.blockNumber),
+          log: Number(event.logIndex),
+          tokenId: tokenId,
+        }),
+      ),
     );
+  } catch (e) {
+    console.log(e);
   }
 }
 
-export async function initTokenHandler(tokenId: any) {
-    const token = await Token.findByPk(tokenId, {
-      include: [{ model: Network }],
-    });
-    if (!token) return;
-    await erc20.listen({
-      url: token.dataValues.network.url,
-      address: token.dataValues.address,
-      options: { fromBlock: token.dataValues.block },
-      event: "Transfer",
-      callback: (event: any) => transferHandler(event, token.dataValues.id),
-    });
+async function transferHandler(msg: string) {
+  const transfer = JSON.parse(msg);
+
+  const fromAccount = await Account.findOne({
+    where: {
+      address: transfer.from,
+      tokenId: transfer.tokenId,
+    },
+  });
+
+  if (fromAccount) {
+    const newValue = new BigNumber(fromAccount.dataValues.value)
+      .minus(new BigNumber(transfer.value))
+      .toFixed()
+      .padStart(78, "0");
+
+    Account.update(
+      { value: newValue },
+      { where: { id: fromAccount.dataValues.id } },
+    );
+  }
+
+  let toAccount = await Account.findOne({
+    where: {
+      address: transfer.to,
+      tokenId: transfer.tokenId,
+    },
+  });
+
+  if (!toAccount) {
+    if (transfer.to != "0x0000000000000000000000000000000000000000")
+      toAccount = await Account.create({
+        tokenId: transfer.tokenId,
+        address: transfer.to,
+        value: transfer.value,
+      });
+  } else {
+    const newValue = new BigNumber(toAccount.dataValues.value)
+      .plus(new BigNumber(transfer.value))
+      .toFixed()
+      .padStart(78, "0");
+
+    Account.update(
+      { value: newValue },
+      { where: { id: toAccount.dataValues.id } },
+    );
+  }
+
+  await Transfer.create(transfer);
 }

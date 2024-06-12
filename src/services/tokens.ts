@@ -40,7 +40,7 @@ export async function create(data: {
   data.symbol = symbol;
   data.decimals = decimals.toString();
   const token = await Token.create(data);
-  await crawler.initTokenHandler(token.dataValues.id);
+  await crawler.tokenHandler(token.dataValues.id);
   return token;
 }
 
