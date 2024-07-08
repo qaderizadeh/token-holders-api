@@ -93,20 +93,41 @@ async function eventHandler(
 async function transferHandler(msg: string) {
   const transfer = JSON.parse(msg);
 
-  const fromAccount = await Account.findOne({
+  if (
+    await Transfer.count({
+      where: {
+        tokenId: transfer.tokenId,
+        hash: transfer.hash,
+        log: transfer.log,
+      },
+    })
+  )
+    return;
+
+  let fromAccount = await Account.findOne({
     where: {
       address: transfer.from,
       tokenId: transfer.tokenId,
     },
   });
 
-  if (fromAccount) {
-    const newValue = new BigNumber(fromAccount.dataValues.value)
-      .minus(new BigNumber(transfer.value))
-      .toFixed()
-      .padStart(78, "0");
+  if (!fromAccount) {
+    if (transfer.from != "0x0000000000000000000000000000000000000000")
+      fromAccount = await Account.create({
+        tokenId: transfer.tokenId,
+        address: transfer.from,
+        value: "-" + new BigNumber(transfer.value).toFixed().padStart(77, "0"),
+      });
+  } else {
+    const newValueBN = new BigNumber(fromAccount.dataValues.value).minus(
+      new BigNumber(transfer.value),
+    );
 
-    Account.update(
+    const newValue = newValueBN.isGreaterThanOrEqualTo(0)
+      ? newValueBN.toFixed().padStart(78, "0")
+      : "-" + newValueBN.abs().toFixed().padStart(77, "0");
+
+    await Account.update(
       { value: newValue },
       { where: { id: fromAccount.dataValues.id } },
     );
@@ -127,10 +148,13 @@ async function transferHandler(msg: string) {
         value: transfer.value,
       });
   } else {
-    const newValue = new BigNumber(toAccount.dataValues.value)
-      .plus(new BigNumber(transfer.value))
-      .toFixed()
-      .padStart(78, "0");
+    const newValueBN = new BigNumber(toAccount.dataValues.value).plus(
+      new BigNumber(transfer.value),
+    );
+
+    const newValue = newValueBN.isGreaterThanOrEqualTo(0)
+      ? newValueBN.toFixed().padStart(78, "0")
+      : "-" + newValueBN.abs().toFixed().padStart(77, "0");
 
     Account.update(
       { value: newValue },

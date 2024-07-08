@@ -1,4 +1,4 @@
-import { Identifier } from "sequelize";
+import { Identifier, Op } from "sequelize";
 import QueryString from "qs";
 import { Transfer } from "../models";
 
@@ -10,9 +10,23 @@ export async function find(data: {
     | QueryString.ParsedQs[]
     | undefined;
 }) {
-  const { _end, _order, _sort, _start, ...query } = data;
+  const { _end, _order, _sort, _start, q, ...query } = data;
   return await Transfer.findAndCountAll({
-    where: query,
+    where: {
+      ...(q
+        ? {
+            [Op.or]: {
+              from: { [Op.like]: `%${q}%` },
+              to: { [Op.like]: `%${q}%` },
+              value: { [Op.like]: `%${q}%` },
+              hash: { [Op.like]: `%${q}%` },
+              block: { [Op.like]: `%${q}%` },
+              log: { [Op.like]: `%${q}%` },
+            },
+          }
+        : {}),
+      ...query,
+    },
     offset: +(_start || 0),
     limit: +(_end || 0) - +(_start || 0),
     order: [[_sort as string, _order as string]],
