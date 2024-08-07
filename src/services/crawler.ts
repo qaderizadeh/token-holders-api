@@ -1,5 +1,6 @@
 import amqplib from "amqplib";
 import BigNumber from "bignumber.js";
+import { Op } from "sequelize";
 import { erc20 } from "./";
 import { Token, Network, Transfer, Account } from "../models";
 
@@ -92,6 +93,9 @@ async function eventHandler(
 
 async function transferHandler(msg: string) {
   const transfer = JSON.parse(msg);
+  let newHolder = false;
+  let fromNewValue = "0";
+  let toNewValue = "0";
 
   if (
     await Transfer.count({
@@ -112,12 +116,16 @@ async function transferHandler(msg: string) {
   });
 
   if (!fromAccount) {
-    if (transfer.from != "0x0000000000000000000000000000000000000000")
+    if (transfer.from != "0x0000000000000000000000000000000000000000") {
       fromAccount = await Account.create({
         tokenId: transfer.tokenId,
         address: transfer.from,
         value: "-" + new BigNumber(transfer.value).toFixed().padStart(77, "0"),
       });
+
+      fromNewValue =
+        "-" + new BigNumber(transfer.value).toFixed().padStart(77, "0");
+    }
   } else {
     const newValueBN = new BigNumber(fromAccount.dataValues.value).minus(
       new BigNumber(transfer.value),
@@ -131,6 +139,8 @@ async function transferHandler(msg: string) {
       { value: newValue },
       { where: { id: fromAccount.dataValues.id } },
     );
+
+    fromNewValue = newValue;
   }
 
   let toAccount = await Account.findOne({
@@ -141,13 +151,20 @@ async function transferHandler(msg: string) {
   });
 
   if (!toAccount) {
-    if (transfer.to != "0x0000000000000000000000000000000000000000")
+    if (transfer.to != "0x0000000000000000000000000000000000000000") {
       toAccount = await Account.create({
         tokenId: transfer.tokenId,
         address: transfer.to,
         value: transfer.value,
       });
+
+      newHolder = true;
+
+      toNewValue = transfer.value;
+    }
   } else {
+    if (toAccount.dataValues.value == 0) newHolder = true;
+
     const newValueBN = new BigNumber(toAccount.dataValues.value).plus(
       new BigNumber(transfer.value),
     );
@@ -160,7 +177,30 @@ async function transferHandler(msg: string) {
       { value: newValue },
       { where: { id: toAccount.dataValues.id } },
     );
+
+    toNewValue = newValue;
   }
+
+  transfer.fromRank =
+    1 +
+    (await Account.count({
+      where: { tokenId: transfer.tokenId, value: { [Op.gt]: fromNewValue } },
+    }));
+
+  transfer.toRank =
+    1 +
+    (await Account.count({
+      where: { tokenId: transfer.tokenId, value: { [Op.gt]: toNewValue } },
+    }));
+
+  transfer.totalHolder = await Account.count({
+    where: {
+      tokenId: transfer.tokenId,
+      value: { [Op.ne]: "0".padStart(78, "0") },
+    },
+  });
+
+  transfer.newHolder = newHolder;
 
   await Transfer.create(transfer);
 }

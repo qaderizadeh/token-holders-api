@@ -10,7 +10,10 @@ const Transfer = db.sequelize.define(
     hash: { type: DataTypes.STRING },
     block: { type: DataTypes.NUMBER },
     log: { type: DataTypes.NUMBER },
-    checked: { type: DataTypes.BOOLEAN, defaultValue: false },
+    fromRank: { type: DataTypes.NUMBER },
+    toRank: { type: DataTypes.NUMBER },
+    totalHolder: { type: DataTypes.NUMBER },
+    newHolder: { type: DataTypes.BOOLEAN },
   },
   {
     indexes: [{ unique: true, fields: ["hash", "log"] }],
