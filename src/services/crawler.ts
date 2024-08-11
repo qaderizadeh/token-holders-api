@@ -4,16 +4,16 @@ import { Op } from "sequelize";
 import { erc20 } from "./";
 import { Token, Network, Transfer, Account } from "../models";
 
-const open = amqplib.connect(process.env.QUEUE_CONNECTION_STRING || "");
+let conn: amqplib.Connection;
 
-async function getChannel(): Promise<amqplib.Channel> {
-  const conn = await open;
-
-  return conn.createChannel();
-}
+let ch: amqplib.Channel;
 
 export async function run() {
   try {
+    conn = await amqplib.connect(process.env.QUEUE_CONNECTION_STRING || "");
+
+    ch = await conn.createChannel();
+
     const tokens = await Token.findAll();
 
     for (const token of tokens) {
@@ -33,8 +33,6 @@ export async function tokenHandler(tokenId: any) {
   if (!token) throw Error("token not found");
 
   const queue = "token:" + token.dataValues.id;
-
-  const ch = await getChannel();
 
   await ch.assertQueue(queue);
 
@@ -68,8 +66,6 @@ export async function tokenHandler(tokenId: any) {
 
 async function eventHandler(event: any, tokenId: any, queue: string) {
   try {
-    const ch = await getChannel();
-
     await ch.assertQueue(queue);
 
     ch.sendToQueue(
