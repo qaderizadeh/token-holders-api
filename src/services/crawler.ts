@@ -4,12 +4,16 @@ import { Op } from "sequelize";
 import { erc20 } from "./";
 import { Token, Network, Transfer, Account } from "../models";
 
-let conn: amqplib.Connection;
+const open = amqplib.connect(process.env.QUEUE_CONNECTION_STRING || "");
+
+async function getChannel(): Promise<amqplib.Channel> {
+  const conn = await open;
+
+  return conn.createChannel();
+}
 
 export async function run() {
   try {
-    conn = await amqplib.connect(process.env.QUEUE_CONNECTION_STRING || "");
-
     const tokens = await Token.findAll();
 
     for (const token of tokens) {
@@ -30,15 +34,17 @@ export async function tokenHandler(tokenId: any) {
 
   const queue = "token:" + token.dataValues.id;
 
-  const ch1 = await conn.createChannel();
-  await ch1.assertQueue(queue);
-  await ch1.prefetch(1);
+  const ch = await getChannel();
 
-  ch1.consume(queue, async (msg) => {
+  await ch.assertQueue(queue);
+
+  await ch.prefetch(1);
+
+  ch.consume(queue, async (msg) => {
     if (msg !== null) {
       await transferHandler(msg.content.toString());
 
-      ch1.ack(msg);
+      ch.ack(msg);
     } else {
       console.log("Consumer cancelled by server");
     }
@@ -56,21 +62,17 @@ export async function tokenHandler(tokenId: any) {
       fromBlock: lastTransfer?.dataValues.block || token.dataValues.block,
     },
     event: "Transfer",
-    callback: (event: any) =>
-      eventHandler(event, token.dataValues.id, conn, queue),
+    callback: (event: any) => eventHandler(event, token.dataValues.id, queue),
   });
 }
 
-async function eventHandler(
-  event: any,
-  tokenId: any,
-  conn: any,
-  queue: string,
-) {
+async function eventHandler(event: any, tokenId: any, queue: string) {
   try {
-    const ch2 = await conn.createChannel();
+    const ch = await getChannel();
 
-    ch2.sendToQueue(
+    await ch.assertQueue(queue);
+
+    ch.sendToQueue(
       queue,
       Buffer.from(
         JSON.stringify({
