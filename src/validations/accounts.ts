@@ -14,5 +14,6 @@ export const find = {
       Joi.array().items(Joi.number().integer().min(1)),
     ],
     value: Joi.string(),
+    value_ne: Joi.string(),
   },
 };
