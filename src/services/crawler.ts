@@ -6,9 +6,13 @@ import { Token, Network, Transfer, Account } from "../models";
 
 let conn: amqplib.Connection;
 
+let ch: amqplib.Channel;
+
 export async function run() {
   try {
     conn = await amqplib.connect(process.env.QUEUE_CONNECTION_STRING || "");
+
+    ch = await conn.createChannel();
 
     const tokens = await Token.findAll();
 
@@ -30,15 +34,15 @@ export async function tokenHandler(tokenId: any) {
 
   const queue = "token:" + token.dataValues.id;
 
-  const ch1 = await conn.createChannel();
-  await ch1.assertQueue(queue);
-  await ch1.prefetch(1);
+  await ch.assertQueue(queue);
 
-  ch1.consume(queue, async (msg) => {
+  await ch.prefetch(1);
+
+  ch.consume(queue, async (msg) => {
     if (msg !== null) {
       await transferHandler(msg.content.toString());
 
-      ch1.ack(msg);
+      ch.ack(msg);
     } else {
       console.log("Consumer cancelled by server");
     }
@@ -56,21 +60,15 @@ export async function tokenHandler(tokenId: any) {
       fromBlock: lastTransfer?.dataValues.block || token.dataValues.block,
     },
     event: "Transfer",
-    callback: (event: any) =>
-      eventHandler(event, token.dataValues.id, conn, queue),
+    callback: (event: any) => eventHandler(event, token.dataValues.id, queue),
   });
 }
 
-async function eventHandler(
-  event: any,
-  tokenId: any,
-  conn: any,
-  queue: string,
-) {
+async function eventHandler(event: any, tokenId: any, queue: string) {
   try {
-    const ch2 = await conn.createChannel();
+    await ch.assertQueue(queue);
 
-    ch2.sendToQueue(
+    ch.sendToQueue(
       queue,
       Buffer.from(
         JSON.stringify({
