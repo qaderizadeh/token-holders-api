@@ -19,7 +19,6 @@ export const create = {
       .lowercase()
       .regex(/\b0x[a-f0-9]{40}\b/)
       .required(),
-    block: Joi.number().integer().min(0).required(),
     networkId: Joi.number().integer().min(1).required(),
   },
 };

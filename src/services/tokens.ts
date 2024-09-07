@@ -1,5 +1,6 @@
 import { Identifier } from "sequelize";
 import QueryString from "qs";
+import axios from "axios";
 import { Network, Token } from "../models";
 import { crawler } from "./";
 import { erc20 } from "./";
@@ -39,6 +40,13 @@ export async function create(data: {
   data.name = name;
   data.symbol = symbol;
   data.decimals = decimals.toString();
+
+  const res = await axios(
+    `https://api.etherscan.io/api?module=account&action=txlist&address=${data.address}&startblock=0&endblock=latest&sort=asc&apikey=${process.env.ETHERSCAN_APIKEY}`,
+  );
+
+  data.block = res.data.result[0].blockNumber;
+
   const token = await Token.create(data);
   await crawler.tokenHandler(token.dataValues.id);
   return token;
