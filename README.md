@@ -60,8 +60,8 @@ src/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-username/token-holders.git
-cd token-holders
+git clone https://github.com/qaderizadeh/token-holders-api.git
+cd token-holders-api
 ````
 
 ### 2. Install dependencies
