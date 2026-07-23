@@ -40,5 +40,8 @@
     "dev": "nodemon ./src/app.ts",
     "build": "tsc -p .",
     "test": "jest"
+  },
+  "resolutions": {
+    "tar": "7.5.7"
   }
 }
