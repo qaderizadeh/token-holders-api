@@ -38,7 +38,14 @@
   "resolutions": {
     "@types/qs": "6.9.11",
     "@types/express-serve-static-core": "4.17.43",
-    "uuid": "^11.1.1"
+    "uuid": "^11.1.1",
+    "@typescript-eslint/typescript-estree/minimatch": "9.0.7",
+    "body-parser/qs": "6.16.0",
+    "express/qs": "6.16.0",
+    "sequelize/moment": "2.31.0",
+    "moment-timezone/moment": "2.31.0",
+    "joi": "17.13.7",
+    "**/@typescript-eslint/typescript-estree/minimatch": "9.0.7"
   },
   "scripts": {
     "start": "node ./dist/app.js",
